@@ -87,7 +87,7 @@ function StageTimeline({ history }) {
   )
 }
 
-export default function Dashboard() {
+export default function Dashboard({ token, onUnauth }) {
   const [leads, setLeads] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -103,7 +103,15 @@ export default function Dashboard() {
     const fetchLeads = async () => {
       try {
         setLoading(true)
-        const response = await fetch('http://127.0.0.1:8000/api/leads')
+        const apiBase = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'
+        const response = await fetch(`${apiBase}/api/leads`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+        
+        if (response.status === 401) {
+          onUnauth()
+          return
+        }
         
         if (!response.ok) {
           throw new Error(`API error: ${response.status}`)
