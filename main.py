@@ -1,11 +1,14 @@
 """
 FastAPI application for Odoo CRM opportunity ageing dashboard.
 """
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel
 import uvicorn
 import os
-from datetime import datetime
+import jwt
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from cachetools import TTLCache, cached
 from odoo_client import get_target_leads, get_lead_stage_history, get_stage_mapping, authenticate
@@ -32,6 +35,37 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+security = HTTPBearer()
+
+class AuthRequest(BaseModel):
+    password: str
+
+def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    secret = os.getenv("JWT_SECRET", "")
+    if not secret:
+        raise HTTPException(status_code=500, detail="Server misconfiguration")
+    try:
+        jwt.decode(credentials.credentials, secret, algorithms=["HS256"])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Session expired, please log in again")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+@app.post("/api/auth")
+def auth(req: AuthRequest):
+    correct = os.getenv("DASHBOARD_PASSWORD", "")
+    secret = os.getenv("JWT_SECRET", "")
+    if not correct or not secret:
+        raise HTTPException(status_code=500, detail="Server misconfiguration")
+    if req.password != correct:
+        raise HTTPException(status_code=401, detail="Invalid password")
+    token = jwt.encode(
+        {"exp": datetime.utcnow() + timedelta(hours=12)},
+        secret,
+        algorithm="HS256"
+    )
+    return {"token": token}
 
 cache = TTLCache(maxsize=100, ttl=300)
 
@@ -135,7 +169,8 @@ def fetch_leads_from_odoo():
 
 
 @app.get("/api/leads")
-def get_leads():
+def get_leads(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    verify_token(credentials)
     try:
         return fetch_leads_from_odoo()
     except Exception as e:
@@ -143,11 +178,6 @@ def get_leads():
             status_code=500,
             detail=f"Failed to fetch leads: {str(e)}"
         )
-
-
-@app.get("/api/test-odoo")
-def test_odoo_connection():
-    return get_leads()
 
 
 if __name__ == "__main__":
