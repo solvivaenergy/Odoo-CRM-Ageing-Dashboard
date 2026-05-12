@@ -26,6 +26,8 @@ jobs:
 
       - name: Build frontend
         working-directory: frontend
+        env:
+          VITE_API_URL: https://odoo-crm-ageing-dashboard.onrender.com
         run: npm run build
 
       - name: Deploy to GitHub Pages
